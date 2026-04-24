@@ -17,5 +17,5 @@ def stay_awake(url):
     driver.quit()
 
 if __name__ == "__main__":
-    MY_APP_URL = "https://analytica-adpushup.streamlit.app/"
+    MY_APP_URL = "https://analytica-adpushup-pro.streamlit.app/"
     stay_awake(MY_APP_URL)
