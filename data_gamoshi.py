@@ -1,11 +1,8 @@
 import pandas as pd
 import io
 
-def process_gamoshi_report(uploaded_file, master_map=None):
-    """
-    Processes Gamoshi report and applies Site ID mapping to all rows 
-    before splitting into sheets.
-    """
+def process_gamoshi_report(uploaded_file):
+    """Splits Gamoshi report into multiple sheets within one workbook."""
     df = pd.read_excel(uploaded_file)
     
     # Metadata skip logic
@@ -15,22 +12,16 @@ def process_gamoshi_report(uploaded_file, master_map=None):
     if 'Advertiser' not in df.columns:
         return None, None
     
-    # Apply Mapping to the entire dataframe at once if map is provided
-    if master_map:
-        # Standardize site names for matching
-        match_col = 'Site' if 'Site' in df.columns else df.columns[0]
-        df['Mapped_Site_ID'] = df[match_col].astype(str).str.strip().str.lower().map(master_map)
-        df['Mapped_Site_ID'] = df['Mapped_Site_ID'].fillna('Nil')
-    
     output = io.BytesIO()
+    # Use ExcelWriter to manage multiple sheets in a single file
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Save the fully mapped master sheet
+        # Sheet 1: The full raw data
         df.to_excel(writer, sheet_name="RAW_DATA", index=False)
         
-        # Split into mapped advertiser sheets
+        # Subsequent Sheets: One per Advertiser
         unique_adv = df['Advertiser'].dropna().unique()
         for adv in unique_adv:
-            clean_name = str(adv)[:31].strip()
+            clean_name = str(adv)[:31].strip() # Excel sheet name limit
             subset = df[df['Advertiser'] == adv]
             subset.to_excel(writer, sheet_name=clean_name, index=False)
             
