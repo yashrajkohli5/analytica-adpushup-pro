@@ -1,5 +1,4 @@
 import sys
-import importlib.metadata
 import io
 import streamlit as st
 import pandas as pd
@@ -9,7 +8,6 @@ from data_loader import upload_file
 from data_cleaner import apply_institutional_logic, finalize_report, clean_url_manually, apply_precision_manually
 from data_transformer import change_datatypes
 from data_gamoshi import process_gamoshi_report 
-# New import for the mapping engine
 from lookup_engine import build_master_mapping, apply_master_lookup
 
 st.set_page_config(page_title="Analytica Pro", layout="wide")
@@ -32,7 +30,7 @@ def main():
         with c2:
             g_file = st.file_uploader("Gamoshi Excel", type=['xlsx'], key="gamoshi_up")
             if g_file:
-                # Updated: Returns a single workbook bytes object using ExcelWriter logic
+                # Returns multi-sheet workbook via ExcelWriter
                 g_cat, g_book_bytes = process_gamoshi_report(g_file)
                 if g_cat:
                     for name, df in g_cat.items():
@@ -70,14 +68,12 @@ def main():
         elif menu == "2. Manual Engineering Tools":
             st.header("🛠️ Manual URL, Precision & Master Lookup")
             
-            # Manual URL Cleaning
             t_col = st.selectbox("Select Column to Clean (URL):", active_df.columns)
             if st.button("🔗 Clean URLs Now"):
                 commit_changes(clean_url_manually(active_df, t_col))
             
             st.divider()
             
-            # Manual Decimal Precision
             num_cols = active_df.select_dtypes(include=['number']).columns.tolist()
             prec_cols = st.multiselect("Select columns for 2-Decimal Precision:", num_cols)
             if st.button("💎 Apply Rounding Now"):
@@ -85,9 +81,8 @@ def main():
 
             st.divider()
 
-            # --- MASTER MAPPING SECTION ---
             st.subheader("🗺️ Master Site ID Mapping")
-            st.info("Upload the workbook containing column pairs: AB, DE, GH, and JK.")
+            st.info("Upload workbook with pairs: AB, DE, GH, and JK.")
             map_file = st.file_uploader("Upload Master Mapping Workbook", type=['xlsx'], key="master_map_file")
             
             if map_file:
@@ -96,13 +91,14 @@ def main():
                 
                 if st.button("🗺️ Execute Master Mapping"):
                     master_dict = build_master_mapping(lookup_df)
+                    # Maps domains and fills unmatched rows with 'Nil'
                     mapped_df = apply_master_lookup(active_df, match_col, master_dict)
                     commit_changes(mapped_df)
-                    st.success(f"Successfully created unique mappings for {len(master_dict)} domains.")
+                    st.success(f"Mapping complete. Unmatched rows marked as 'Nil'.")
 
         elif menu == "3. Type Conversion":
             st.header("Step 3: Change Column Types")
-            # Fixed: data_transformer now handles Nullable Integer (Int64) conversion
+            # Transformer handles Nullable Integer (Int64) for NaN support
             transformed_df = change_datatypes(active_df)
             if transformed_df is not None and not transformed_df.equals(active_df):
                 commit_changes(transformed_df)
@@ -114,16 +110,14 @@ def main():
             if st.button("🏁 Finalize & Trim"):
                 commit_changes(finalize_report(active_df, to_keep))
 
-        # --- EXPORT SECTION WITH CUSTOM NAMING ---
+        # --- EXPORT WITH CUSTOM NAMING ---
         st.sidebar.divider()
         st.sidebar.header("📥 Export Settings")
         file_name_input = st.sidebar.text_input("Export Filename:", value=f"cleaned_{selected_name.split('.')[0]}")
         
-        # CSV Export
         csv = active_df.to_csv(index=False).encode('utf-8')
         st.sidebar.download_button("📥 Export CSV", csv, f"{file_name_input}.csv", "text/csv")
         
-        # Excel Export
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             active_df.to_excel(writer, index=False)
