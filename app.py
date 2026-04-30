@@ -32,11 +32,13 @@ def main():
         with c2:
             g_file = st.file_uploader("Gamoshi Excel", type=['xlsx'], key="gamoshi_up")
             if g_file:
-                g_cat, g_book = process_gamoshi_report(g_file)
+                # Updated: Returns a single workbook bytes object using ExcelWriter logic
+                g_cat, g_book_bytes = process_gamoshi_report(g_file)
                 if g_cat:
                     for name, df in g_cat.items():
-                        st.session_state.catalog[name] = {"df": df}
-                    st.download_button("📥 Download Workbook", data=g_book, file_name="Gamoshi_Split.xlsx")
+                        if name not in st.session_state.catalog:
+                            st.session_state.catalog[name] = {"df": df}
+                    st.download_button("📥 Download Workbook", data=g_book_bytes, file_name="Gamoshi_Split.xlsx")
 
     # 2. DATA PROCESSING
     if st.session_state.catalog:
@@ -90,19 +92,17 @@ def main():
             
             if map_file:
                 lookup_df = pd.read_excel(map_file)
-                # User selects which column in the report should be matched against the domain
                 match_col = st.selectbox("Match IDs using this column (Domain):", active_df.columns)
                 
                 if st.button("🗺️ Execute Master Mapping"):
-                    # 1. Build dictionary from pairs
                     master_dict = build_master_mapping(lookup_df)
-                    # 2. Apply to the active report
                     mapped_df = apply_master_lookup(active_df, match_col, master_dict)
                     commit_changes(mapped_df)
                     st.success(f"Successfully created unique mappings for {len(master_dict)} domains.")
 
         elif menu == "3. Type Conversion":
             st.header("Step 3: Change Column Types")
+            # Fixed: data_transformer now handles Nullable Integer (Int64) conversion
             transformed_df = change_datatypes(active_df)
             if transformed_df is not None and not transformed_df.equals(active_df):
                 commit_changes(transformed_df)
@@ -114,9 +114,21 @@ def main():
             if st.button("🏁 Finalize & Trim"):
                 commit_changes(finalize_report(active_df, to_keep))
 
+        # --- EXPORT SECTION WITH CUSTOM NAMING ---
         st.sidebar.divider()
+        st.sidebar.header("📥 Export Settings")
+        file_name_input = st.sidebar.text_input("Export Filename:", value=f"cleaned_{selected_name.split('.')[0]}")
+        
+        # CSV Export
         csv = active_df.to_csv(index=False).encode('utf-8')
-        st.sidebar.download_button("📥 Export CSV", csv, f"{selected_name}_final.csv")
+        st.sidebar.download_button("📥 Export CSV", csv, f"{file_name_input}.csv", "text/csv")
+        
+        # Excel Export
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            active_df.to_excel(writer, index=False)
+        st.sidebar.download_button("📊 Export Excel", buffer.getvalue(), f"{file_name_input}.xlsx")
+
     else:
         st.info("👋 Welcome! Please upload files to begin.")
 
