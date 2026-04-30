@@ -21,31 +21,37 @@ def main():
     # 1. IMPORT CENTER
     with st.expander("📂 Import Center", expanded=True):
         c1, c2 = st.columns(2)
+        
         with c1:
-            st.markdown("### Setup Master Mapping")
-            map_file_setup = st.file_uploader("Upload Master Map (AB, DE, GH, JK)", type=['xlsx'], key="g_setup_map")
-            master_dict = None
-            if map_file_setup:
-                master_dict = build_master_mapping(pd.read_excel(map_file_setup))
-                st.success(f"✅ Master Map Loaded")
-
-            st.divider()
+            st.markdown("### 📄 Standard Data Upload")
             new_data = upload_file()
             if new_data:
                 for name, df in new_data.items():
                     if name not in st.session_state.catalog:
                         st.session_state.catalog[name] = {"df": df}
+                        
         with c2:
-            st.markdown("### Gamoshi Processing")
-            g_file = st.file_uploader("Gamoshi Excel", type=['xlsx'], key="gamoshi_up")
+            st.markdown("### 📊 Gamoshi Specialized Workflow")
+            g_file = st.file_uploader("Upload Gamoshi Excel", type=['xlsx'], key="gamoshi_up")
+            
+            # Sub-options for Gamoshi
+            master_dict = None
             if g_file:
-                # FIX: Use explicit "is not None" check to avoid ValueError
-                g_cat, g_book_bytes = process_gamoshi_report(g_file, master_map=master_dict)
-                if g_cat is not None:
-                    for name, df in g_cat.items():
-                        if name not in st.session_state.catalog:
-                            st.session_state.catalog[name] = {"df": df}
-                    st.download_button("📥 Download Mapped Workbook", data=g_book_bytes, file_name="Gamoshi_Mapped.xlsx")
+                use_map = st.checkbox("Apply Site ID Mapping before splitting?")
+                if use_map:
+                    map_file = st.file_uploader("Upload Master Map (AB, DE, GH, JK)", type=['xlsx'])
+                    if map_file:
+                        master_dict = build_master_mapping(pd.read_excel(map_file))
+                        st.success("✅ Master map ready for Gamoshi processing.")
+
+                if st.button("🚀 Process & Map Gamoshi"):
+                    # Explicit "is not None" check to avoid ValueError
+                    g_cat, g_book_bytes = process_gamoshi_report(g_file, master_map=master_dict)
+                    if g_cat is not None:
+                        for name, df in g_cat.items():
+                            if name not in st.session_state.catalog:
+                                st.session_state.catalog[name] = {"df": df}
+                        st.download_button("📥 Download Mapped Workbook", data=g_book_bytes, file_name="Gamoshi_Mapped_Report.xlsx")
 
     # 2. DATA PROCESSING
     if st.session_state.catalog:
@@ -55,7 +61,12 @@ def main():
         st.subheader(f"📊 Live View: {selected_name}")
         st.dataframe(active_df, use_container_width=True, height=350)
         
-        menu = st.sidebar.radio("Navigate Steps:", ["1. Institutional Cleanup", "2. Manual Engineering Tools", "3. Type Conversion", "4. Column Finalizer"])
+        menu = st.sidebar.radio("Navigate Steps:", [
+            "1. Institutional Cleanup", 
+            "2. Manual Engineering Tools",
+            "3. Type Conversion", 
+            "4. Column Finalizer"
+        ])
 
         def commit_changes(new_df):
             st.session_state.catalog[selected_name]["df"] = new_df
@@ -65,12 +76,12 @@ def main():
             st.header("Step 1 & 2: AdPushup Rules")
             s_col = st.selectbox("Site/Domain Column:", active_df.columns)
             e_col = st.selectbox("Email Column:", active_df.columns)
-            i_col = st.selectbox("Site ID Column (Optional):", [None] + list(active_df.columns))
+            i_col = st.selectbox("Site ID (Optional):", [None] + list(active_df.columns))
             if st.button("🚀 Run Rules Cleanup"):
                 commit_changes(apply_institutional_logic(active_df, s_col, e_col, i_col))
 
         elif menu == "2. Manual Engineering Tools":
-            st.header("🛠️ Manual URL, Precision & Master Lookup")
+            st.header("🛠️ Engineering Tools")
             t_col = st.selectbox("Select Column to Clean (URL):", active_df.columns)
             if st.button("🔗 Clean URLs Now"):
                 commit_changes(clean_url_manually(active_df, t_col))
@@ -83,26 +94,22 @@ def main():
 
             st.divider()
             st.subheader("🗺️ Manual Site ID Mapping")
-            map_file = st.file_uploader("Upload Mapping Workbook", type=['xlsx'], key="manual_map")
-            if map_file:
-                lookup_df = pd.read_excel(map_file)
-                match_col = st.selectbox("Match Domain using:", active_df.columns)
-                if st.button("🗺️ Execute Master Mapping"):
-                    m_dict = build_master_mapping(lookup_df)
-                    mapped_df = apply_master_lookup(active_df, match_col, m_dict)
-                    commit_changes(mapped_df)
+            m_file = st.file_uploader("Upload Mapping Workbook", type=['xlsx'], key="manual_map")
+            if m_file:
+                m_match_col = st.selectbox("Match Domain using:", active_df.columns)
+                if st.button("🗺️ Execute Mapping"):
+                    m_dict = build_master_mapping(pd.read_excel(m_file))
+                    commit_changes(apply_master_lookup(active_df, m_match_col, m_dict))
                     st.success("Mapping complete. Unmatched rows marked as 'Nil'.")
 
         elif menu == "3. Type Conversion":
-            st.header("Step 3: Change Column Types")
             transformed_df = change_datatypes(active_df)
             if transformed_df is not None and not transformed_df.equals(active_df):
                 commit_changes(transformed_df)
 
         elif menu == "4. Column Finalizer":
-            st.header("Step 4: Trim Columns")
-            to_keep = st.multiselect("Select columns to KEEP:", active_df.columns.tolist(), default=active_df.columns.tolist())
-            if st.button("🏁 Finalize & Trim"):
+            to_keep = st.multiselect("Keep Columns:", active_df.columns.tolist(), default=active_df.columns.tolist())
+            if st.button("🏁 Finalize"):
                 commit_changes(finalize_report(active_df, to_keep))
 
         # EXPORT SETTINGS
@@ -111,7 +118,7 @@ def main():
         file_name_input = st.sidebar.text_input("Export Filename:", value=f"cleaned_{selected_name.split('.')[0]}")
         
         csv = active_df.to_csv(index=False).encode('utf-8')
-        st.sidebar.download_button("📥 Export CSV", csv, f"{file_name_input}.csv", "text/csv")
+        st.sidebar.download_button("📥 Export CSV", csv, f"{file_name_input}.csv")
         
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
